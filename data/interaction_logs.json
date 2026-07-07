@@ -1,0 +1,74 @@
+[
+  {
+    "id": "chat-1783437884310-5592",
+    "time": 1783437884,
+    "sessionId": "visitor-1783437526325",
+    "query": "你好",
+    "answer": "你好呀！欢迎来到灵山胜境，我是你的AI导游灵小山😊。请问你对什么感兴趣？比如历史文化、自然风光，或者想了解某个景点？我可以帮你规划路线哦～",
+    "engine": "deepseek-deepseek-chat",
+    "confidence": 0.96,
+    "latencyMs": 1485,
+    "emotion": "neutral",
+    "emotionName": "平静",
+    "sources": [
+      {
+        "id": "guide-10",
+        "title": "历史文化爱好者路线（6小时深度游）",
+        "category": "游览指南"
+      },
+      {
+        "id": "guide-13",
+        "title": "自然风光爱好者路线（5小时全景游）",
+        "category": "游览指南"
+      },
+      {
+        "id": "subduing-mara-relief",
+        "title": "降魔浮雕",
+        "category": "文化展陈"
+      },
+      {
+        "id": "xiangfu-temple",
+        "title": "祥符禅寺",
+        "category": "寺院禅修"
+      }
+    ],
+    "routeRecommendations": [],
+    "feedback": null
+  },
+  {
+    "id": "chat-1783437919384-3396",
+    "time": 1783437919,
+    "sessionId": "visitor-1783437526325",
+    "query": "哪里好玩",
+    "answer": "你好呀！灵山胜境好玩的地方可多啦！如果你喜欢历史文化，推荐走“6小时深度游”：从南门进，看灵山大照壁、佛手广场，再到祥符禅寺感受千年古刹，最后登灵山大佛、逛梵宫和五印坛城。适合文化爱好者，注意穿舒适鞋子哦！要是爱自然风光，试试“5小时全景游”：九龙灌浴看表演、菩提大道赏太湖，登大佛俯瞰全景，再逛曼飞龙塔和禅意园林。适合家庭或拍照党，记得带伞防晒！想听哪个？😊",
+    "engine": "deepseek-deepseek-chat",
+    "confidence": 0.96,
+    "latencyMs": 2690,
+    "emotion": "happy",
+    "emotionName": "开心",
+    "sources": [
+      {
+        "id": "guide-10",
+        "title": "历史文化爱好者路线（6小时深度游）",
+        "category": "游览指南"
+      },
+      {
+        "id": "guide-13",
+        "title": "自然风光爱好者路线（5小时全景游）",
+        "category": "游览指南"
+      },
+      {
+        "id": "subduing-mara-relief",
+        "title": "降魔浮雕",
+        "category": "文化展陈"
+      },
+      {
+        "id": "xiangfu-temple",
+        "title": "祥符禅寺",
+        "category": "寺院禅修"
+      }
+    ],
+    "routeRecommendations": [],
+    "feedback": null
+  }
+]
