@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
@@ -9,36 +9,9 @@
 <body>
   <main class="shell">
     <section class="guide-panel">
-      <div class="avatar" id="avatar">
-        <canvas id="avatarCanvas" class="avatar-canvas" aria-label="3D 数字人导游"></canvas>
-        <div class="avatar-stage">
-          <div class="scenic-ring"></div>
-          <div class="avatar-body">
-            <div class="shoulder shoulder-left"></div>
-            <div class="shoulder shoulder-right"></div>
-            <div class="torso">
-              <span class="robe-trim"></span>
-              <span class="sash"></span>
-            </div>
-            <div class="neck"></div>
-            <div class="head">
-              <span class="hair hair-left"></span>
-              <span class="hair hair-right"></span>
-              <span class="hair-pin"></span>
-              <div class="face">
-                <span class="brow brow-left"></span>
-                <span class="brow brow-right"></span>
-                <span class="eye eye-left"></span>
-                <span class="eye eye-right"></span>
-                <span class="nose"></span>
-                <span class="mouth"></span>
-              </div>
-            </div>
-            <div class="arm arm-left"></div>
-            <div class="arm arm-right"></div>
-          </div>
-          <div class="lotus-base"><span></span><span></span><span></span></div>
-        </div>
+      <div class="avatar talkinghead-shell" id="avatar">
+        <div id="talkingHeadAvatar" class="talkinghead-avatar" aria-label="3D 数字人导游"></div>
+        <div id="avatarLoading" class="avatar-loading">正在加载 3D 数字人...</div>
       </div>
       <div class="status"><strong id="avatarName">灵小山</strong><span id="emotion">平静</span></div>
       <div class="avatar-title" id="avatarTitle">灵山胜境讲解员</div>
@@ -96,7 +69,17 @@
       <div class="offline-tip" id="offlineTip">已启用本地缓存兜底：断网时仍可查看最近路线。</div>
     </section>
   </main>
-  <script type="module" src="/frontend/avatar3d.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/frontend/vendor/three/three.module.js",
+      "three/addons/": "/frontend/vendor/three/addons/"
+    }
+  }
+  </script>
+  <script type="module" src="/frontend/avatar-talkinghead.js"></script>
   <script src="/frontend/app.js"></script>
 </body>
 </html>
+
+

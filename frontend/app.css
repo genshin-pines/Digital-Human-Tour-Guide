@@ -167,3 +167,72 @@ button.voice.recording { background: #9c3d3d; color: white; }
   .main-panel { min-height: 620px; }
   .routes-panel { min-height: 560px; }
 }
+
+/* TalkingHead 3D avatar replacement */
+.avatar.talkinghead-shell {
+  width: 240px;
+  height: 330px;
+  border-radius: 18px;
+  padding: 0;
+  overflow: hidden;
+  display: block;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255,255,255,.9) 0 16%, rgba(217,232,225,.62) 42%, transparent 68%),
+    linear-gradient(180deg, #f8fbfa 0%, #dcebe6 58%, #bcd4ca 100%);
+  border: 1px solid rgba(255,255,255,.9);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.5), 0 24px 52px rgba(38,66,54,.18);
+  position: relative;
+}
+.avatar.talkinghead-shell::before,
+.avatar.talkinghead-shell::after {
+  content: none;
+}
+.talkinghead-avatar {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.talkinghead-avatar canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+.avatar-loading {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 4;
+  min-height: 22px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.82);
+  color: #2f5749;
+  font-size: 12px;
+  text-align: center;
+  box-shadow: 0 8px 20px rgba(35,65,52,.12);
+  transition: opacity .2s ease;
+}
+.avatar.talkinghead-ready .avatar-loading { opacity: 0; pointer-events: none; }
+.avatar.talkinghead-error .avatar-loading { color: #8c3434; opacity: 1; }
+.avatar.talkinghead-shell.listening { outline: 4px solid rgba(17,107,85,.18); }
+.avatar.talkinghead-shell.speaking { box-shadow: inset 0 0 0 1px rgba(255,255,255,.55), 0 28px 60px rgba(18,106,84,.25); }
+.avatar.talkinghead-shell.smile { background: linear-gradient(180deg, #fbfffb, #dcefe2 58%, #bbd9c5); }
+.avatar.talkinghead-shell.thinking { background: linear-gradient(180deg, #f9fbff, #dfe8ef 58%, #c1cfda); }
+.avatar.talkinghead-shell.focused { background: linear-gradient(180deg, #fffaf2, #eadfce 58%, #d0be9e); }
+.avatar.talkinghead-shell .avatar-stage,
+.avatar.talkinghead-shell .avatar-canvas,
+.avatar.talkinghead-shell .scenic-ring,
+.avatar.talkinghead-shell .avatar-body,
+.avatar.talkinghead-shell .head,
+.avatar.talkinghead-shell .face,
+.avatar.talkinghead-shell .eye,
+.avatar.talkinghead-shell .brow,
+.avatar.talkinghead-shell .mouth,
+.avatar.talkinghead-shell .lotus-base {
+  display: none !important;
+}
+@media (max-width: 1120px) {
+  .avatar.talkinghead-shell { width: 220px; height: 300px; }
+}

@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 SESSIONS = {}
 
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
+mimetypes.add_type("model/gltf-binary", ".glb")
+
 AVATAR_PROFILES = [
     {
         "id": "lingshan-default",

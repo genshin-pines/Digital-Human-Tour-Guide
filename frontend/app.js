@@ -1,4 +1,4 @@
-const messages = document.querySelector("#messages");
+﻿const messages = document.querySelector("#messages");
 const form = document.querySelector("#chatForm");
 const input = document.querySelector("#messageInput");
 const avatar = document.querySelector("#avatar");
@@ -60,6 +60,7 @@ function setAvatarState(stateName, emotionName) {
   avatar.classList.remove("smile", "thinking", "focused");
   if (stateName && stateName !== "normal") avatar.classList.add(stateName);
   emotion.textContent = emotionName || "平静";
+  window.lingshanAvatar?.setMood?.(stateName || "normal", emotionName || "平静");
 }
 
 function refreshVoices() {
@@ -112,10 +113,18 @@ function buildUtterance(text, runId) {
   const voice = pickVoice(currentAvatarProfile);
   if (voice) utterance.voice = voice;
   utterance.onstart = () => {
-    if (runId === speechRunId && !speechPaused) avatar.classList.add("speaking");
+    if (runId !== speechRunId || speechPaused) return;
+    avatar.classList.add("speaking");
+    window.lingshanAvatar?.speakText?.(text);
   };
-  utterance.onend = () => playNextSpeechChunk(runId);
-  utterance.onerror = () => playNextSpeechChunk(runId);
+  utterance.onend = () => {
+    window.lingshanAvatar?.stopSpeaking?.();
+    playNextSpeechChunk(runId);
+  };
+  utterance.onerror = () => {
+    window.lingshanAvatar?.stopSpeaking?.();
+    playNextSpeechChunk(runId);
+  };
   return utterance;
 }
 
@@ -127,6 +136,7 @@ function playNextSpeechChunk(runId) {
     activeUtterance = null;
     activeSpeechText = "";
     avatar.classList.remove("speaking");
+    window.lingshanAvatar?.stopSpeaking?.();
     return;
   }
   activeUtterance = buildUtterance(speechQueue[speechIndex], runId);
@@ -142,6 +152,7 @@ function speak(text) {
   speechQueue = splitSpeechText(activeSpeechText);
   speechIndex = 0;
   window.speechSynthesis.cancel();
+  window.lingshanAvatar?.stopSpeaking?.();
   window.speechSynthesis.resume();
   refreshVoices();
   if (!speechQueue.length) return;
@@ -156,13 +167,17 @@ function pauseSpeech() {
   speechPaused = true;
   window.speechSynthesis.pause();
   avatar.classList.remove("speaking");
+  window.lingshanAvatar?.pauseSpeaking?.();
 }
 
 function resumeSpeech() {
   if (!("speechSynthesis" in window)) return;
   speechPaused = false;
   window.speechSynthesis.resume();
-  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) avatar.classList.add("speaking");
+  if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+    avatar.classList.add("speaking");
+    window.lingshanAvatar?.resumeSpeaking?.(speechQueue[speechIndex] || activeSpeechText);
+  }
   if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending && activeSpeechText) speak(activeSpeechText);
 }
 
@@ -176,6 +191,7 @@ function stopSpeech() {
   activeSpeechText = "";
   window.speechSynthesis.cancel();
   avatar.classList.remove("speaking");
+  window.lingshanAvatar?.stopSpeaking?.();
 }
 
 function renderVisitorAvatarOptions(selectedId) {
@@ -195,8 +211,9 @@ function chooseAvatarProfile(config) {
 function applyAvatarConfig(config, profileOverride = null) {
   const profile = profileOverride || chooseAvatarProfile(config);
   currentAvatarProfile = profile;
-  const readyClass = avatar.classList.contains("avatar-3d-ready") ? " avatar-3d-ready" : "";
-  avatar.className = `avatar ${profile.cssClass || "profile-lingshan"}${readyClass}`;
+  const preservedClasses = ["talkinghead-ready", "talkinghead-error", "speaking", "listening", "smile", "thinking", "focused"]
+    .filter((className) => avatar.classList.contains(className));
+  avatar.className = ["avatar", "talkinghead-shell", profile.cssClass || "profile-lingshan", ...preservedClasses].join(" ");
   avatarName.textContent = profile.name || "灵小山";
   avatarTitle.textContent = `${profile.title || "灵山胜境讲解员"} · ${profile.voice || config?.voice || "温柔女声"}`;
   avatarChips.innerHTML = (profile.chips || ["语音问答", "流式回答", "情绪表情", "伴随讲解"])
@@ -264,7 +281,7 @@ function appendFeedbackButtons(container, interactionId) {
 async function send(message) {
   addMessage("user", message);
   const botContent = addMessage("bot", "正在检索灵山知识库...");
-  avatar.classList.add("speaking");
+  setAvatarState("thinking", "思考中");
   let finalData = null;
   let fullText = "";
 
@@ -319,7 +336,7 @@ async function send(message) {
     }
   }
 
-  avatar.classList.remove("speaking");
+  avatar.classList.remove("speaking", "thinking");
   if (finalData) {
     setAvatarState(finalData.emotion?.avatarState, finalData.emotion?.name);
     confidenceNode.textContent = `${Math.round((finalData.confidence || 0.9) * 100)}%`;
@@ -356,6 +373,7 @@ function setupSpeechRecognition() {
   rec.onstart = () => {
     voiceButton.classList.add("recording");
     avatar.classList.add("listening");
+    window.lingshanAvatar?.setListening?.(true);
     voiceButton.textContent = "Stop";
   };
   rec.onresult = (event) => {
@@ -370,6 +388,7 @@ function setupSpeechRecognition() {
   rec.onend = () => {
     voiceButton.classList.remove("recording");
     avatar.classList.remove("listening");
+    window.lingshanAvatar?.setListening?.(false);
     voiceButton.textContent = "Mic";
   };
   rec.onerror = () => addMessage("bot", "当前浏览器没有授予麦克风权限，或不支持语音识别。你也可以直接输入文字。");
@@ -504,3 +523,5 @@ refreshVoices();
 if ("speechSynthesis" in window) window.speechSynthesis.onvoiceschanged = refreshVoices;
 loadAvatarConfig();
 loadRoutes();
+
+
