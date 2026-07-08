@@ -1,0 +1,80 @@
+[
+  {
+    "id": "lingshan-wall",
+    "latitude": 31.4228,
+    "longitude": 120.1012,
+    "radius": 140
+  },
+  {
+    "id": "wuming-bridge",
+    "latitude": 31.4234,
+    "longitude": 120.1008,
+    "radius": 130
+  },
+  {
+    "id": "five-wisdom-gate",
+    "latitude": 31.4248,
+    "longitude": 120.0996,
+    "radius": 150
+  },
+  {
+    "id": "bodhi-avenue",
+    "latitude": 31.4256,
+    "longitude": 120.0988,
+    "radius": 170
+  },
+  {
+    "id": "nine-dragon",
+    "latitude": 31.4266,
+    "longitude": 120.098,
+    "radius": 170
+  },
+  {
+    "id": "ashoka-pillar",
+    "latitude": 31.4276,
+    "longitude": 120.0966,
+    "radius": 150
+  },
+  {
+    "id": "xiangfu-temple",
+    "latitude": 31.429,
+    "longitude": 120.0953,
+    "radius": 180
+  },
+  {
+    "id": "lingshan-buddha",
+    "latitude": 31.4307,
+    "longitude": 120.0938,
+    "radius": 220
+  },
+  {
+    "id": "brahma-palace",
+    "latitude": 31.4278,
+    "longitude": 120.0895,
+    "radius": 220
+  },
+  {
+    "id": "nianhua-square",
+    "latitude": 31.4215,
+    "longitude": 120.052,
+    "radius": 200
+  },
+  {
+    "id": "xiangyue-flower-street",
+    "latitude": 31.4204,
+    "longitude": 120.0525,
+    "radius": 180
+  },
+  {
+    "id": "wudeng-lake",
+    "latitude": 31.4187,
+    "longitude": 120.0532,
+    "radius": 190
+  },
+  {
+    "id": "fantian-flower-sea",
+    "latitude": 31.4214,
+    "longitude": 120.0478,
+    "radius": 220
+  }
+]

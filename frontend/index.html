@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
@@ -17,12 +17,22 @@
       <div class="avatar-title" id="avatarTitle">灵山胜境讲解员</div>
       <div class="chips" id="avatarChips"><span>语音问答</span><span>流式回答</span><span>情绪表情</span><span>伴随讲解</span></div>
       <div class="avatar-picker">
-        <label for="visitorAvatarSelect">选择数字人</label>
-        <select id="visitorAvatarSelect"></select>
+        <label for="avatarProfileSelect">数字人</label>
+        <select id="avatarProfileSelect">
+          <option value="">正在加载数字人...</option>
+        </select>
       </div>
       <div class="guide-meter">
         <span>回答可信度</span>
         <strong id="confidence">待提问</strong>
+      </div>
+      <div class="auto-guide-panel">
+        <div class="auto-guide-head"><strong>自动导游</strong><span id="autoGuideState">未开启</span></div>
+        <div class="auto-guide-actions">
+          <button type="button" id="autoGuideToggle">开启</button>
+          <button type="button" id="autoGuideMute">静音</button>
+        </div>
+        <div class="auto-guide-meta" id="autoGuideMeta">开启后会根据实时位置靠近景点自动讲解</div>
       </div>
     </section>
 
@@ -81,5 +91,3 @@
   <script src="/frontend/app.js"></script>
 </body>
 </html>
-
-

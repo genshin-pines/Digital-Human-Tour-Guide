@@ -1,8 +1,11 @@
-# 环境变量（包含敏感信息如 API Key）
+# Environment variables and local secrets
 .env
-.env.txt
+.env.*
+!.env.example
 
-# Python
+# Runtime logs and caches
+server.log
+*.log
 __pycache__/
 *.pyc
 *.pyo

@@ -1,11 +1,16 @@
-﻿const messages = document.querySelector("#messages");
+const messages = document.querySelector("#messages");
 const form = document.querySelector("#chatForm");
 const input = document.querySelector("#messageInput");
 const avatar = document.querySelector("#avatar");
 const avatarName = document.querySelector("#avatarName");
 const avatarTitle = document.querySelector("#avatarTitle");
 const avatarChips = document.querySelector("#avatarChips");
-const visitorAvatarSelect = document.querySelector("#visitorAvatarSelect");
+const avatarProfileSelect = document.querySelector("#avatarProfileSelect");
+const autoGuideToggle = document.querySelector("#autoGuideToggle");
+const autoGuideMute = document.querySelector("#autoGuideMute");
+const autoGuideState = document.querySelector("#autoGuideState");
+const autoGuideMeta = document.querySelector("#autoGuideMeta");
+const autoGuidePanel = document.querySelector(".auto-guide-panel");
 const emotion = document.querySelector("#emotion");
 const routesNode = document.querySelector("#routes");
 const routeDetail = document.querySelector("#routeDetail");
@@ -19,7 +24,7 @@ let currentSpotIndex = 0;
 let recognition = null;
 let currentAvatarProfile = null;
 let avatarProfiles = [];
-let avatarConfig = null;
+let serverAvatarConfig = null;
 let availableVoices = [];
 let speechQueue = [];
 let speechIndex = 0;
@@ -27,6 +32,13 @@ let activeUtterance = null;
 let activeSpeechText = "";
 let speechRunId = 0;
 let speechPaused = false;
+let autoGuideSpots = [];
+let autoGuideWatchId = null;
+let autoGuideEnabled = false;
+let autoGuideMuted = false;
+let autoGuideVisited = new Set();
+let autoGuideLastPosition = null;
+const CLIENT_AVATAR_KEY = "lingshanVisitorAvatarProfileId";
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -84,6 +96,11 @@ function pickVoice(profile) {
   const fallbackSlot = String(profile?.id || profile?.name || "").split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const slot = Number.isFinite(Number(profile?.voiceSlot)) ? Number(profile.voiceSlot) : fallbackSlot;
   return pool[((slot % pool.length) + pool.length) % pool.length];
+}
+
+function avatarStateClasses() {
+  return ["avatar-3d-ready", "talkinghead-shell", "talkinghead-ready", "talkinghead-error", "speaking", "listening", "smile", "thinking", "focused"]
+    .filter((className) => avatar.classList.contains(className));
 }
 
 function splitSpeechText(text, size = 120) {
@@ -194,48 +211,184 @@ function stopSpeech() {
   window.lingshanAvatar?.stopSpeaking?.();
 }
 
-function renderVisitorAvatarOptions(selectedId) {
-  if (!visitorAvatarSelect || !avatarProfiles.length) return;
-  visitorAvatarSelect.innerHTML = avatarProfiles
-    .map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.avatar || profile.name)}</option>`)
-    .join("");
-  visitorAvatarSelect.value = selectedId;
+ 
+function distanceMeters(from, to) {
+  const earthRadius = 6371000;
+  const lat1 = from.latitude * Math.PI / 180;
+  const lat2 = to.latitude * Math.PI / 180;
+  const dLat = (to.latitude - from.latitude) * Math.PI / 180;
+  const dLng = (to.longitude - from.longitude) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function chooseAvatarProfile(config) {
-  const savedId = localStorage.getItem("visitorAvatarProfileId");
-  const selectedId = avatarProfiles.some((profile) => profile.id === savedId) ? savedId : config?.profileId;
-  return avatarProfiles.find((profile) => profile.id === selectedId) || config?.profile || avatarProfiles[0] || {};
+function setAutoGuideStatus(stateText, metaText = "") {
+  if (autoGuideState) autoGuideState.textContent = stateText;
+  if (autoGuideMeta && metaText) autoGuideMeta.textContent = metaText;
+  if (autoGuidePanel) autoGuidePanel.classList.toggle("active", autoGuideEnabled);
+  if (autoGuideToggle) autoGuideToggle.textContent = autoGuideEnabled ? "关闭" : "开启";
+  if (autoGuideMute) {
+    autoGuideMute.textContent = autoGuideMuted ? "恢复声音" : "静音";
+    autoGuideMute.classList.toggle("secondary", !autoGuideMuted);
+  }
 }
 
-function applyAvatarConfig(config, profileOverride = null) {
-  const profile = profileOverride || chooseAvatarProfile(config);
-  currentAvatarProfile = profile;
-  const preservedClasses = ["talkinghead-ready", "talkinghead-error", "speaking", "listening", "smile", "thinking", "focused"]
-    .filter((className) => avatar.classList.contains(className));
-  avatar.className = ["avatar", "talkinghead-shell", profile.cssClass || "profile-lingshan", ...preservedClasses].join(" ");
+async function loadAutoGuideSpots() {
+  try {
+    autoGuideSpots = await fetch("/api/auto-guide-spots").then((res) => res.json());
+    if (autoGuideSpots.length && autoGuideMeta) autoGuideMeta.textContent = `已加载 ${autoGuideSpots.length} 个自动讲解点`;
+  } catch {
+    autoGuideSpots = [];
+    if (autoGuideMeta) autoGuideMeta.textContent = "自动导游点位暂不可用";
+  }
+}
+
+function nearestAutoGuideSpot(position) {
+  if (!autoGuideSpots.length) return null;
+  const current = {latitude: position.coords.latitude, longitude: position.coords.longitude};
+  return autoGuideSpots
+    .map((spot) => ({...spot, distance: distanceMeters(current, spot)}))
+    .sort((left, right) => left.distance - right.distance)[0] || null;
+}
+
+function triggerAutoGuideSpot(spot) {
+  autoGuideVisited.add(spot.id);
+  const text = `自动导游：你已到达${spot.name}。${spot.narration || spot.summary || "这里是当前路线中的重要景点，建议放慢脚步，留意周边景观与文化细节。"}`;
+  const content = addMessage("bot", text, {sources: [{title: spot.name}]});
+  appendSpeakButton(content.closest(".msg"), text);
+  setAvatarState("smile", "讲解");
+  if (!autoGuideMuted) speak(text);
+  setAutoGuideStatus("讲解中", `已触发：${spot.name}`);
+}
+
+function handleAutoGuidePosition(position) {
+  autoGuideLastPosition = position;
+  const nearest = nearestAutoGuideSpot(position);
+  if (!nearest) {
+    setAutoGuideStatus("监测中", "正在等待靠近自动讲解点");
+    return;
+  }
+  const distanceText = nearest.distance < 1000 ? `${Math.round(nearest.distance)}米` : `${(nearest.distance / 1000).toFixed(1)}公里`;
+  setAutoGuideStatus("监测中", `最近：${nearest.name}，约 ${distanceText}`);
+  const target = autoGuideSpots
+    .map((spot) => ({...spot, distance: distanceMeters({latitude: position.coords.latitude, longitude: position.coords.longitude}, spot)}))
+    .filter((spot) => spot.distance <= spot.radius && !autoGuideVisited.has(spot.id))
+    .sort((left, right) => left.distance - right.distance)[0];
+  if (target) triggerAutoGuideSpot(target);
+}
+
+function handleAutoGuideError(error) {
+  const messages = {
+    1: "定位权限未开启，无法自动导游",
+    2: "暂时获取不到当前位置",
+    3: "定位超时，请稍后再试",
+  };
+  stopAutoGuide(false);
+  setAutoGuideStatus("未开启", messages[error.code] || "定位不可用");
+}
+
+async function startAutoGuide() {
+  if (!navigator.geolocation) {
+    setAutoGuideStatus("不可用", "当前浏览器不支持定位");
+    return;
+  }
+  if (!autoGuideSpots.length) await loadAutoGuideSpots();
+  if (!autoGuideSpots.length) {
+    setAutoGuideStatus("不可用", "暂无自动导游点位");
+    return;
+  }
+  autoGuideVisited = new Set();
+  autoGuideEnabled = true;
+  setAutoGuideStatus("定位中", "正在请求定位权限");
+  autoGuideWatchId = navigator.geolocation.watchPosition(handleAutoGuidePosition, handleAutoGuideError, {
+    enableHighAccuracy: true,
+    maximumAge: 8000,
+    timeout: 15000,
+  });
+}
+
+function stopAutoGuide(stopCurrentSpeech = true) {
+  if (autoGuideWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(autoGuideWatchId);
+  }
+  autoGuideWatchId = null;
+  autoGuideEnabled = false;
+  if (stopCurrentSpeech) stopSpeech();
+  setAutoGuideStatus("未开启", "自动导游已关闭");
+}
+
+if (autoGuideToggle) {
+  autoGuideToggle.addEventListener("click", () => {
+    if (autoGuideEnabled) stopAutoGuide(true);
+    else startAutoGuide();
+  });
+}
+
+if (autoGuideMute) {
+  autoGuideMute.addEventListener("click", () => {
+    autoGuideMuted = !autoGuideMuted;
+    if (autoGuideMuted) stopSpeech();
+    const status = autoGuideEnabled ? "监测中" : "未开启";
+    setAutoGuideStatus(status, autoGuideMuted ? "自动导游已静音，仍会记录到达景点" : "自动导游声音已恢复");
+  });
+}
+
+function renderAvatarProfileSelect(selectedId = "") {
+  if (!avatarProfileSelect) return;
+  avatarProfileSelect.disabled = avatarProfiles.length === 0;
+  avatarProfileSelect.innerHTML = avatarProfiles.length
+    ? avatarProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name || profile.avatar || profile.id)}</option>`).join("")
+    : `<option value="">暂无可选数字人</option>`;
+  avatarProfileSelect.value = selectedId || avatarProfiles[0]?.id || "";
+}
+
+function profileFromConfig(config, selectedId = "") {
+  if (config?.profiles?.length) avatarProfiles = config.profiles;
+  const profileId = selectedId || config?.profileId || avatarProfiles[0]?.id || "";
+  return avatarProfiles.find((profile) => profile.id === profileId) || config?.profile || avatarProfiles[0] || {};
+}
+
+function selectedAvatarId(config = {}) {
+  const savedId = localStorage.getItem(CLIENT_AVATAR_KEY) || "";
+  if (savedId && avatarProfiles.some((profile) => profile.id === savedId)) return savedId;
+  return config?.profileId || avatarProfiles[0]?.id || "";
+}
+
+function applyAvatarConfig(config = {}, selectedId = selectedAvatarId(config)) {
+  const profile = profileFromConfig(config, selectedId);
+  const selectedVoice = profile.voice || config?.voice;
+  currentAvatarProfile = {...profile, voice: selectedVoice};
+  avatar.className = ["avatar", profile.cssClass || "profile-lingshan", ...avatarStateClasses()].join(" ");
   avatarName.textContent = profile.name || "灵小山";
-  avatarTitle.textContent = `${profile.title || "灵山胜境讲解员"} · ${profile.voice || config?.voice || "温柔女声"}`;
+  avatarTitle.textContent = `${profile.title || "灵山胜境讲解员"} · ${selectedVoice || "温柔女声"}`;
   avatarChips.innerHTML = (profile.chips || ["语音问答", "流式回答", "情绪表情", "伴随讲解"])
     .map((chip) => `<span>${escapeHtml(chip)}</span>`)
     .join("");
-  renderVisitorAvatarOptions(profile.id);
+  renderAvatarProfileSelect(profile.id || selectedId);
 }
 
 async function loadAvatarConfig() {
   try {
-    avatarConfig = await fetch("/api/admin/avatar-config").then((res) => res.json());
-    avatarProfiles = avatarConfig.profiles || [];
-    if (!avatarProfiles.length) {
-      avatarProfiles = await fetch("/api/avatar-profiles").then((res) => res.json());
-      avatarConfig.profiles = avatarProfiles;
-    }
-    applyAvatarConfig(avatarConfig);
+    const config = await fetch("/api/admin/avatar-config").then((res) => res.json());
+    serverAvatarConfig = config;
+    avatarProfiles = config.profiles || [];
+    applyAvatarConfig(config);
   } catch {
-    avatarProfiles = [];
-    avatarConfig = {profile: {id: "lingshan-default", cssClass: "profile-lingshan", name: "灵小山", title: "灵山胜境讲解员", voice: "温柔女声"}};
-    applyAvatarConfig(avatarConfig);
+    const fallbackProfile = {id: "lingshan-default", cssClass: "profile-lingshan", name: "灵小山", title: "灵山胜境讲解员", voice: "温柔女声"};
+    avatarProfiles = [fallbackProfile];
+    serverAvatarConfig = {profileId: fallbackProfile.id, profile: fallbackProfile, profiles: avatarProfiles};
+    applyAvatarConfig(serverAvatarConfig);
   }
+}
+
+if (avatarProfileSelect) {
+  avatarProfileSelect.addEventListener("change", () => {
+    const selectedId = avatarProfileSelect.value;
+    if (!selectedId) return;
+    localStorage.setItem(CLIENT_AVATAR_KEY, selectedId);
+    stopSpeech();
+    applyAvatarConfig(serverAvatarConfig || {profiles: avatarProfiles}, selectedId);
+  });
 }
 
 function appendSpeakButton(container, text) {
@@ -281,7 +434,7 @@ function appendFeedbackButtons(container, interactionId) {
 async function send(message) {
   addMessage("user", message);
   const botContent = addMessage("bot", "正在检索灵山知识库...");
-  setAvatarState("thinking", "思考中");
+  avatar.classList.add("speaking");
   let finalData = null;
   let fullText = "";
 
@@ -336,7 +489,7 @@ async function send(message) {
     }
   }
 
-  avatar.classList.remove("speaking", "thinking");
+  avatar.classList.remove("speaking");
   if (finalData) {
     setAvatarState(finalData.emotion?.avatarState, finalData.emotion?.name);
     confidenceNode.textContent = `${Math.round((finalData.confidence || 0.9) * 100)}%`;
@@ -404,16 +557,6 @@ voiceButton.addEventListener("click", () => {
   if (voiceButton.classList.contains("recording")) recognition.stop();
   else recognition.start();
 });
-
-if (visitorAvatarSelect) {
-  visitorAvatarSelect.addEventListener("change", () => {
-    const profile = avatarProfiles.find((item) => item.id === visitorAvatarSelect.value);
-    if (!profile) return;
-    localStorage.setItem("visitorAvatarProfileId", profile.id);
-    applyAvatarConfig(avatarConfig, profile);
-    stopSpeech();
-  });
-}
 
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => send(button.dataset.prompt));
@@ -491,7 +634,12 @@ function showRouteDetail(route, activate = true) {
     });
   });
   routeDetail.querySelectorAll("[data-ask]").forEach((button) => {
-    button.addEventListener("click", () => send(button.dataset.ask));
+    button.addEventListener("click", () => {
+      const question = button.dataset.ask?.trim();
+      if (!question) return;
+      switchView("chatView");
+      send(question);
+    });
   });
   if (activate) switchView("detailView");
 }
@@ -523,5 +671,3 @@ refreshVoices();
 if ("speechSynthesis" in window) window.speechSynthesis.onvoiceschanged = refreshVoices;
 loadAvatarConfig();
 loadRoutes();
-
-

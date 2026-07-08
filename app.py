@@ -14,13 +14,13 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 
-ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
-SESSIONS = {}
-
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("model/gltf-binary", ".glb")
+
+ROOT = Path(__file__).resolve().parent
+DATA = ROOT / "data"
+SESSIONS = {}
 
 AVATAR_PROFILES = [
     {
@@ -110,7 +110,7 @@ def load_dotenv():
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        os.environ[key.strip()] = value.strip().strip('"').strip("'")
 
 
 load_dotenv()
@@ -521,6 +521,35 @@ def emotion_for(query):
     return {"label": "neutral", "name": "平静", "avatarState": "normal"}
 
 
+def auto_guide_spots():
+    spots = {spot["id"]: spot for spot in read_json("scenic_spots.json")}
+    configured = read_json_default("auto_guide_spots.json", [])
+    result = []
+    for item in configured:
+        spot_id = item.get("id", "")
+        base = spots.get(spot_id, {})
+        latitude = item.get("latitude")
+        longitude = item.get("longitude")
+        if latitude is None or longitude is None:
+            continue
+        name = item.get("name") or base.get("name") or spot_id
+        summary = item.get("narration") or base.get("summary") or base.get("detail") or ""
+        tips = base.get("tips", "")
+        narration = short_text(f"{summary} {tips}", 280)
+        result.append({
+            "id": spot_id,
+            "name": name,
+            "area": item.get("area") or base.get("area", "灵山胜境"),
+            "category": item.get("category") or base.get("category", "景点讲解"),
+            "latitude": latitude,
+            "longitude": longitude,
+            "radius": int(item.get("radius", 160)),
+            "summary": short_text(base.get("summary") or summary, 160),
+            "narration": narration,
+        })
+    return result
+
+
 def routes_with_spots():
     routes = read_json("routes.json")
     spots = {spot["id"]: spot for spot in read_json("scenic_spots.json")}
@@ -698,6 +727,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         ctype = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        if file_path.suffix in {".js", ".mjs"}:
+            ctype = "application/javascript"
+        elif file_path.suffix == ".glb":
+            ctype = "model/gltf-binary"
         body = file_path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text/") or ctype == "application/javascript" else ""))
@@ -724,6 +757,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(read_json("scenic_spots.json"))
         if path == "/api/routes":
             return self.send_json(routes_with_spots())
+        if path == "/api/auto-guide-spots":
+            return self.send_json(auto_guide_spots())
         if path == "/api/routes/recommend":
             return self.send_json(recommend_routes(params.get("interest", [""])[0])[:3])
         if path == "/api/knowledge":

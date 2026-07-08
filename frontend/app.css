@@ -104,11 +104,21 @@ body { margin: 0; font-family: "Microsoft YaHei", Arial, sans-serif; background:
 .avatar-title { color: #517060; font-size: 13px; text-align: center; margin-top: -10px; }
 .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .chips span { padding: 6px 10px; border-radius: 999px; background: #dfeae5; color: #3b5a4c; font-size: 12px; }
-.avatar-picker { width: 100%; display: grid; gap: 7px; }
-.avatar-picker label { color: #4c655a; font-size: 13px; font-weight: 700; }
-.avatar-picker select { width: 100%; border: 1px solid #cfdbd5; border-radius: 8px; padding: 10px 11px; background: #fff; color: #19231f; }
+.avatar-picker { width: 100%; display: grid; gap: 6px; padding: 10px; border: 1px solid #d9e6df; border-radius: 8px; background: rgba(255,255,255,.72); }
+.avatar-picker label { font-size: 12px; color: #60756b; font-weight: 700; }
+.avatar-picker select { width: 100%; min-width: 0; border: 1px solid #cfdbd5; border-radius: 8px; padding: 8px 10px; background: #fff; color: #213a31; outline: none; }
 .guide-meter { width: 100%; padding: 12px; border-radius: 8px; background: #f7fbf9; border: 1px solid #dae7e1; display: flex; justify-content: space-between; color: #4c655a; }
 .guide-meter strong { color: #126a54; }
+.auto-guide-panel { width: 100%; display: grid; gap: 8px; padding: 11px; border: 1px solid #d9e6df; border-radius: 8px; background: #f9fcfa; }
+.auto-guide-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: #24493b; }
+.auto-guide-head strong { font-size: 14px; }
+.auto-guide-head span { color: #60756b; font-size: 12px; }
+.auto-guide-panel.active { border-color: #88baa8; box-shadow: 0 0 0 3px rgba(18,106,84,.08); }
+.auto-guide-panel.active .auto-guide-head span { color: #116b55; font-weight: 700; }
+.auto-guide-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.auto-guide-actions button { padding: 8px 9px; font-size: 13px; }
+.auto-guide-actions button.secondary { background: #d9e8e1; color: #174536; }
+.auto-guide-meta { min-height: 34px; color: #61786d; font-size: 12px; line-height: 1.45; }
 .main-panel { display: grid; grid-template-rows: auto 1fr; overflow: hidden; }
 header { padding: 14px 18px; border-bottom: 1px solid #e2e8e5; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 h1 { font-size: 21px; margin: 0; }
