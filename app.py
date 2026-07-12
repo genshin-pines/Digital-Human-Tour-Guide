@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+import base64
 import html
 import io
 import json
@@ -13,6 +14,21 @@ import urllib.parse
 import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
+
+try:
+    import nls
+    ALIYUN_NLS_AVAILABLE = True
+except ImportError:
+    ALIYUN_NLS_AVAILABLE = False
+
+try:
+    import azure.cognitiveservices.speech as speechsdk
+    AZURE_SPEECH_AVAILABLE = True
+except ImportError:
+    AZURE_SPEECH_AVAILABLE = False
+
+EDGE_TTS_AVAILABLE = False
+
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
@@ -34,6 +50,7 @@ AVATAR_PROFILES = [
         "rate": 1.00,
         "pitch": 1.08,
         "voiceHints": ["Xiaoxiao", "Huihui", "Yaoyao", "Female"],
+        "ttsVoice": "zh-CN-XiaoxiaoNeural",
         "voiceSlot": 0,
         "tagline": "亲切、稳重，适合通用景区问答。",
         "chips": ["灵山讲解", "温柔女声", "通用导览"],
@@ -49,6 +66,7 @@ AVATAR_PROFILES = [
         "rate": 0.88,
         "pitch": 1.18,
         "voiceHints": ["Xiaoyi", "Xiaoxiao", "Female"],
+        "ttsVoice": "zh-CN-XiaoyiNeural",
         "voiceSlot": 1,
         "tagline": "语速更舒缓，适合禅意、夜游、休闲场景。",
         "chips": ["拈花湾", "禅意慢游", "夜游推荐"],
@@ -64,6 +82,7 @@ AVATAR_PROFILES = [
         "rate": 0.90,
         "pitch": 0.72,
         "voiceHints": ["Yunxi", "Kangkang", "Male"],
+        "ttsVoice": "zh-CN-YunxiNeural",
         "voiceSlot": 2,
         "tagline": "更适合佛教文化、建筑艺术和历史深度讲解。",
         "chips": ["历史文化", "沉稳男声", "深度讲解"],
@@ -79,6 +98,7 @@ AVATAR_PROFILES = [
         "rate": 1.16,
         "pitch": 1.48,
         "voiceHints": ["Xiaoyi", "Child", "Female"],
+        "ttsVoice": "zh-CN-XiaoyiNeural",
         "voiceSlot": 3,
         "tagline": "语气更轻快，适合孩子、家庭和轻体力路线。",
         "chips": ["亲子互动", "轻快语气", "家庭路线"],
@@ -94,6 +114,7 @@ AVATAR_PROFILES = [
         "rate": 1.06,
         "pitch": 0.92,
         "voiceHints": ["Yunyang", "Microsoft", "Male"],
+        "ttsVoice": "zh-CN-YunyangNeural",
         "voiceSlot": 4,
         "tagline": "适合人流提醒、卫生间、餐饮、交通和应急问答。",
         "chips": ["服务调度", "清晰播报", "应急提醒"],
@@ -678,6 +699,636 @@ def split_answer(text, size=14):
     return parts
 
 
+def tts_voice_for_profile(profile_id=None):
+    for profile in AVATAR_PROFILES:
+        if profile["id"] == profile_id:
+            return profile.get("ttsVoice", "zh-CN-XiaoxiaoNeural")
+    return "zh-CN-XiaoxiaoNeural"
+
+
+def aliyun_tts_config():
+    appkey = os.environ.get("ALIYUN_NLS_APPKEY", "").strip()
+    token = os.environ.get("ALIYUN_NLS_TOKEN", "").strip()
+    return {
+        "enabled": bool(appkey and token),
+        "appkey": appkey,
+        "token": token,
+        "url": os.environ.get("ALIYUN_NLS_URL", "wss://nls-gateway.cn-shanghai.aliyuncs.com/ws/v1").strip(),
+        "voice": os.environ.get("ALIYUN_NLS_VOICE", "siyue").strip() or "siyue",
+        "sampleRate": int(os.environ.get("ALIYUN_NLS_SAMPLE_RATE", "24000") or 24000),
+    }
+
+
+def azure_speech_config():
+    key = os.environ.get("AZURE_SPEECH_KEY", "").strip()
+    region = os.environ.get("AZURE_SPEECH_REGION", "").strip()
+    return {
+        "enabled": bool(key and region),
+        "key": key,
+        "region": region,
+        "voice": os.environ.get("AZURE_SPEECH_VOICE", "zh-CN-XiaoxiaoNeural").strip() or "zh-CN-XiaoxiaoNeural",
+        "lang": os.environ.get("AZURE_SPEECH_LANG", "zh-CN").strip() or "zh-CN",
+    }
+
+
+AZURE_BLENDSHAPE_MAP = [
+    "eyeBlinkLeft", "eyeLookDownLeft", "eyeLookInLeft", "eyeLookOutLeft", "eyeLookUpLeft",
+    "eyeSquintLeft", "eyeWideLeft", "eyeBlinkRight", "eyeLookDownRight", "eyeLookInRight",
+    "eyeLookOutRight", "eyeLookUpRight", "eyeSquintRight", "eyeWideRight", "jawForward",
+    "jawLeft", "jawRight", "jawOpen", "mouthClose", "mouthFunnel", "mouthPucker",
+    "mouthLeft", "mouthRight", "mouthSmileLeft", "mouthSmileRight", "mouthFrownLeft",
+    "mouthFrownRight", "mouthDimpleLeft", "mouthDimpleRight", "mouthStretchLeft",
+    "mouthStretchRight", "mouthRollLower", "mouthRollUpper", "mouthShrugLower",
+    "mouthShrugUpper", "mouthPressLeft", "mouthPressRight", "mouthLowerDownLeft",
+    "mouthLowerDownRight", "mouthUpperUpLeft", "mouthUpperUpRight", "browDownLeft",
+    "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight", "cheekPuff",
+    "cheekSquintLeft", "cheekSquintRight", "noseSneerLeft", "noseSneerRight", "tongueOut",
+    "headRoll", "leftEyeRoll", "rightEyeRoll",
+]
+
+
+def escape_ssml_text(text):
+    return (
+        str(text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+EDGE_VISEME_TO_MODEL = {
+    # Microsoft/Edge viseme ids mapped to the Oculus-style morph targets in
+    # guide.glb.  Several speech sounds intentionally share one visible shape.
+    0: "", 1: "aa", 2: "aa", 3: "O", 4: "E", 5: "RR", 6: "I", 7: "U",
+    8: "O", 9: "DD", 10: "SS", 11: "SS", 12: "TH", 13: "RR", 14: "DD",
+    15: "SS", 16: "CH", 17: "FF", 18: "PP", 19: "PP", 20: "kk", 21: "kk",
+}
+
+
+PHONEME_TO_MODEL_VISEME = {
+    # Bilabial closure.
+    "b": "PP", "p": "PP", "m": "PP", "b_c": "PP", "p_c": "PP", "m_c": "PP",
+    # Labiodental.
+    "f": "FF", "v": "FF", "f_c": "FF",
+    # Dental and tongue-contact consonants.
+    "th": "TH", "dh": "TH",
+    "d": "DD", "t": "DD", "n": "DD", "l": "DD",
+    "d_c": "DD", "t_c": "DD", "n_c": "DD", "l_c": "DD",
+    # Velar.
+    "k": "kk", "g": "kk", "ng": "kk", "h": "kk", "hh": "kk",
+    "g_c": "kk", "k_c": "kk", "h_c": "kk",
+    # Affricates and retroflexes.
+    "ch": "CH", "jh": "CH", "q_c": "CH", "j_c": "CH", "zh_c": "CH", "ch_c": "CH",
+    # Sibilants.
+    "s": "SS", "z": "SS", "sh": "SS", "zh": "SS",
+    "s_c": "SS", "x_c": "SS", "z_c": "SS", "c_c": "SS", "sh_c": "SS",
+    # Rounded finals.
+    "u": "U", "uw": "U", "uh": "U", "w": "U", "v_c": "U",
+    "u_c": "U", "ue_c": "U", "un_c": "U", "uo_c": "U", "ui_c": "U",
+    "ou": "O", "ow": "O", "ao": "O", "o_c": "O", "ou_c": "O", "ong_c": "O",
+    # Front vowels.
+    "i": "I", "iy": "I", "ih": "I", "y": "I", "i_c": "I", "in_c": "I", "ing_c": "I",
+    "e": "E", "eh": "E", "ey": "E", "ae": "E", "e_c": "E", "ei_c": "E", "en_c": "E",
+    # Open vowels and diphthongs.
+    "aa": "aa", "ah": "aa", "ah0": "aa", "ah1": "aa", "ah2": "aa",
+    "a_c": "aa", "ai_c": "aa", "an_c": "aa", "ang_c": "aa", "ian_c": "aa", "ia_c": "aa",
+    # R-coloured.
+    "r": "RR", "er": "RR", "r_c": "RR", "er_c": "RR",
+}
+
+
+class TtsGenerationError(RuntimeError):
+    """Raised when the external speech engine cannot produce a usable result."""
+
+
+def _analyze_audio_mouth_envelope(audio_mp3_bytes, word_times=None, debug=None):
+    """Return an audio-timed mouth-opening envelope and the decoded duration.
+
+    This intentionally does *not* infer vowel shapes from loudness.  Audio
+    energy can say how far the jaw should open, but cannot tell /a/ from /o/.
+    The phonetic shape is assigned from Edge's VisemeBoundary events below.
+    """
+    import tempfile
+    import os as _os
+
+    try:
+        import miniaudio
+    except ImportError:
+        return None, 0
+
+    try:
+        import numpy as np
+    except ImportError:
+        return None, 0
+
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
+        with _os.fdopen(fd, "wb") as tmp_file:
+            tmp_file.write(audio_mp3_bytes)
+
+        decoded = miniaudio.decode_file(tmp_path)
+        sr = decoded.sample_rate
+        ch = decoded.nchannels
+        samples = np.frombuffer(decoded.samples, dtype=np.int16).astype(np.float32)
+        if ch > 1:
+            samples = samples.reshape(-1, ch).mean(axis=1)
+    except Exception:
+        return None, 0
+    finally:
+        if tmp_path and _os.path.exists(tmp_path):
+            _os.unlink(tmp_path)
+
+    if len(samples) < sr // 10:
+        return None, 0
+
+    duration_ms = int(len(samples) * 1000 / sr)
+
+    db = debug or {}
+    peak = float(np.abs(samples).max() or 1)
+    samples = samples / peak
+
+    # Keep silence closed, but let voiced vowels open clearly.  Earlier values
+    # were intentionally conservative and made the avatar look almost closed.
+    NOISE_FLOOR  = min(0.3, max(0.0, float(db.get("noiseFloor", 0.025))))
+    MO_MIN       = min(0.8, max(0.0, float(db.get("moMin", 0.05))))
+    MO_MAX       = min(1.0, max(MO_MIN, float(db.get("moMax", 0.95))))
+    ATTACK_MS    = min(500.0, max(1.0, float(db.get("attackMs", 12))))
+    RELEASE_MS   = min(500.0, max(1.0, float(db.get("releaseMs", 45))))
+    HOLD_MS      = min(500.0, max(0.0, float(db.get("holdMs", 0))))
+    SMOOTH_WIN   = min(30, max(1, int(db.get("smoothFrames", 2))))
+
+    win_samples = int(sr * 0.01)
+    hop_samples = win_samples // 2
+    n_windows = max(1, (len(samples) - win_samples) // hop_samples + 1)
+    times = np.arange(n_windows) * hop_samples * 1000 / sr
+
+    rms_raw = np.zeros(n_windows)
+    for i in range(n_windows):
+        rms_raw[i] = float(np.sqrt(np.mean(samples[i*hop_samples : i*hop_samples+win_samples] ** 2)))
+
+    p95 = float(np.percentile(rms_raw, 95)) + 1e-12
+    energy = np.clip(rms_raw / p95, 0, 1)
+
+    if SMOOTH_WIN > 1:
+        kernel = np.ones(SMOOTH_WIN) / SMOOTH_WIN
+        energy = np.convolve(energy, kernel, mode="same")
+
+    # Use WordBoundary only as a noise gate.  The generous margins avoid
+    # clipping consonants at a boundary; phoneme identity comes from visemes.
+    envelope = np.zeros(n_windows)
+
+    if word_times and len(word_times) > 0:
+        for (w_start, w_end) in word_times:
+            w_start = max(0, w_start - 35)
+            w_end = max(w_start + 30, w_end + 35)
+            mask = (times >= w_start) & (times <= w_end)
+            envelope[mask] = np.maximum(envelope[mask], energy[mask])
+    else:
+        envelope = np.where(energy > NOISE_FLOOR, energy, 0.0)
+
+    # Attack/release smoothing
+    atk_coef = np.exp(-hop_samples / (max(ATTACK_MS, 1) * sr / 1000))
+    rel_coef = np.exp(-hop_samples / (max(RELEASE_MS, 1) * sr / 1000))
+
+    smoothed = envelope.copy()
+    for i in range(1, n_windows):
+        if envelope[i] > smoothed[i - 1]:
+            smoothed[i] = envelope[i] * (1 - atk_coef) + smoothed[i - 1] * atk_coef
+        else:
+            smoothed[i] = envelope[i] * (1 - rel_coef) + smoothed[i - 1] * rel_coef
+
+    # Hold
+    if HOLD_MS > 0 and word_times:
+        hf = max(1, int(HOLD_MS / 10))
+        held = smoothed.copy()
+        for i in range(n_windows):
+            if smoothed[i] > NOISE_FLOOR * 0.5:
+                for j in range(i, min(i + hf, n_windows)):
+                    held[j] = max(held[j], NOISE_FLOOR * 1.5)
+        smoothed = held
+
+    # Hard gate: outside word windows, force zero
+    gated = smoothed.copy()
+    if word_times and len(word_times) > 0:
+        in_word = np.zeros(n_windows, dtype=bool)
+        for (w_start, w_end) in word_times:
+            w_start = max(0, w_start - 35)
+            w_end += 35
+            in_word |= (times >= w_start) & (times <= w_end)
+        gated[~in_word] = 0
+
+    final_env = np.where(gated > NOISE_FLOOR, gated, 0.0)
+
+    normalized_env = np.clip(
+        (final_env - NOISE_FLOOR) / max(1e-6, 1.0 - NOISE_FLOOR), 0, 1
+    )
+    mo_scaled = np.where(
+        final_env > 0,
+        MO_MIN + normalized_env ** 0.78 * (MO_MAX - MO_MIN),
+        0.0,
+    )
+    mo_scaled = np.clip(mo_scaled, 0, MO_MAX)
+
+    # 20 ms is visually smooth while keeping the response small enough for a
+    # debugging page to inspect.  The last keyframe makes closure deterministic.
+    frames = [
+        {"t": int(times[i]), "mo": round(float(mo_scaled[i]), 3)}
+        for i in range(0, n_windows, 4)
+    ]
+    if not frames or frames[-1]["t"] < duration_ms:
+        frames.append({"t": duration_ms, "mo": 0.0})
+    else:
+        frames[-1]["mo"] = 0.0
+    return frames, duration_ms
+
+
+def _edge_viseme_events(raw_visemes):
+    """Normalise Edge events to browser milliseconds and model morph names."""
+    events = []
+    for event in raw_visemes or []:
+        try:
+            viseme_id = int(event["viseme_id"])
+            start_ms = max(0, int(event["offset"]) // 10000)
+            duration_ms = max(0, int(event.get("duration", 0)) // 10000)
+        except (KeyError, TypeError, ValueError):
+            continue
+        events.append({
+            "t": start_ms,
+            "d": duration_ms,
+            "id": viseme_id,
+            "vis": EDGE_VISEME_TO_MODEL.get(viseme_id, ""),
+        })
+    return sorted(events, key=lambda item: item["t"])
+
+
+def _build_viseme_timeline(envelope, events, duration_ms):
+    """Combine audio amplitude with the service's phonetic timeline.
+
+    Mouth openness is driven by the phoneme, not the raw energy envelope:
+      - consonants (PP/FF/DD/kk/CH/SS/TH) → jaw nearly shut
+      - vowels (aa/O/E/I/U) → energy from the audio envelope
+      - silence (no active viseme) → closed
+    """
+    if not envelope:
+        return None
+
+    CONSONANT_SET = {"PP", "FF", "DD", "kk", "CH", "SS", "TH"}
+    VOWEL_SET = {"aa", "O", "E", "I", "U"}
+
+    event_index = 0
+    active_viseme = ""
+    timeline = []
+    for frame in envelope:
+        while event_index < len(events) and events[event_index]["t"] <= frame["t"]:
+            active_viseme = events[event_index]["vis"]
+            event_index += 1
+
+        if not active_viseme:
+            mo = 0.0
+        elif active_viseme in CONSONANT_SET:
+            mo = 0.04
+        elif active_viseme in VOWEL_SET:
+            mo = max(0.12, round(frame["mo"], 3))
+        else:
+            mo = 0.0
+
+        timeline.append({"t": frame["t"], "mo": mo, "vis": active_viseme})
+
+    if timeline[-1]["t"] < duration_ms:
+        timeline.append({"t": duration_ms, "mo": 0.0, "vis": ""})
+    else:
+        timeline[-1].update({"mo": 0.0, "vis": ""})
+    return timeline
+
+
+def _phoneme_to_model_viseme(phoneme):
+    key = str(phoneme or "").strip().lower()
+    if not key or key == "null":
+        return ""
+    if key in PHONEME_TO_MODEL_VISEME:
+        return PHONEME_TO_MODEL_VISEME[key]
+    if key.endswith("_c"):
+        # Most Chinese finals are visually closest to their main vowel.
+        base = key[:-2]
+        if base.startswith(("u", "v")) or "u" in base:
+            return "U"
+        if base.startswith("o") or "o" in base:
+            return "O"
+        if base.startswith(("i", "y")) or "i" in base:
+            return "I"
+        if base.startswith("e") or "e" in base:
+            return "E"
+        if base.startswith("a") or "a" in base:
+            return "aa"
+    return "aa"
+
+
+def _aliyun_phoneme_events(subtitles):
+    events = []
+    for item in subtitles or []:
+        phoneme_list = item.get("phoneme_list") or []
+        if not phoneme_list:
+            try:
+                start_ms = max(0, int(item.get("begin_time", 0)))
+                end_ms = max(start_ms, int(item.get("end_time", start_ms)))
+            except (TypeError, ValueError):
+                start_ms = 0
+                end_ms = 0
+            phones = [
+                part.strip()
+                for part in str(item.get("phoneme") or "").split()
+                if part.strip() and part.strip().lower() != "null"
+            ]
+            if phones and end_ms > start_ms:
+                step = (end_ms - start_ms) / len(phones)
+                phoneme_list = [
+                    {
+                        "index": index,
+                        "begin_time": round(start_ms + step * index),
+                        "end_time": round(start_ms + step * (index + 1)),
+                        "phoneme": phoneme,
+                        "tone": None,
+                    }
+                    for index, phoneme in enumerate(phones)
+                ]
+
+        for phone in phoneme_list:
+            try:
+                start_ms = max(0, int(phone.get("begin_time", 0)))
+                end_ms = max(start_ms, int(phone.get("end_time", start_ms)))
+            except (TypeError, ValueError):
+                continue
+            phoneme = str(phone.get("phoneme") or "")
+            events.append({
+                "t": start_ms,
+                "d": max(0, end_ms - start_ms),
+                "id": phoneme,
+                "vis": _phoneme_to_model_viseme(phoneme),
+                "phoneme": phoneme,
+                "tone": phone.get("tone"),
+            })
+    return sorted(events, key=lambda item: item["t"])
+
+
+def _subtitle_texts_from_original(text, subtitles):
+    pronounced_chars = [
+        char for char in text
+        if not char.isspace() and not re.match(r"^[\W_]+$", char, re.UNICODE)
+    ]
+    if pronounced_chars:
+        return pronounced_chars[:min(len(pronounced_chars), len(subtitles or pronounced_chars))]
+
+    words = []
+    cursor = 0
+    for item in subtitles or []:
+        try:
+            start = int(item.get("begin_index", -1))
+            end = int(item.get("end_index", -1))
+        except (TypeError, ValueError):
+            start = -1
+            end = -1
+        if 0 <= start < end <= len(text):
+            word = text[start:end]
+            cursor = max(cursor, end)
+        else:
+            word = text[cursor:cursor + 1] if cursor < len(text) else item.get("text", "")
+            cursor += len(word)
+        words.append(word)
+    return words
+
+
+def _subtitle_word_times(subtitles):
+    times = []
+    for item in subtitles or []:
+        try:
+            start_ms = max(0, int(item.get("begin_time", 0)))
+            end_ms = max(start_ms, int(item.get("end_time", start_ms)))
+        except (TypeError, ValueError):
+            continue
+        if end_ms > start_ms:
+            times.append((start_ms, end_ms))
+    return times or None
+
+
+def _dedupe_subtitles(subtitles):
+    deduped = []
+    seen = set()
+    for item in sorted(
+        subtitles or [],
+        key=lambda value: (
+            int(value.get("begin_time", 0) or 0),
+            int(value.get("end_time", 0) or 0),
+            str(value.get("phoneme") or ""),
+        ),
+    ):
+        key = (
+            item.get("begin_index"),
+            item.get("end_index"),
+            item.get("begin_time"),
+            item.get("end_time"),
+            item.get("phoneme"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _generate_aliyun_tts_sync(text, profile_id=None, lip_debug=None):
+    config = aliyun_tts_config()
+    if not text or not config["enabled"]:
+        return None
+    if not ALIYUN_NLS_AVAILABLE:
+        raise TtsGenerationError("Aliyun NLS SDK is not installed")
+
+    audio_chunks = []
+    metainfo_messages = []
+    error_messages = []
+    completed_messages = []
+
+    def on_data(data, *args):
+        audio_chunks.append(data)
+
+    def on_metainfo(message, *args):
+        metainfo_messages.append(message)
+
+    def on_completed(message, *args):
+        completed_messages.append(message)
+
+    def on_error(message, *args):
+        error_messages.append(message)
+
+    synthesizer = nls.NlsSpeechSynthesizer(
+        url=config["url"],
+        token=config["token"],
+        appkey=config["appkey"],
+        on_metainfo=on_metainfo,
+        on_data=on_data,
+        on_completed=on_completed,
+        on_error=on_error,
+    )
+    try:
+        synthesizer.start(
+            text=text,
+            voice=config["voice"],
+            aformat="mp3",
+            sample_rate=config["sampleRate"],
+            wait_complete=True,
+            start_timeout=10,
+            completed_timeout=60,
+            ex={"enable_subtitle": True, "enable_phoneme_timestamp": True},
+        )
+    except Exception as error:
+        raise TtsGenerationError(f"Aliyun NLS {type(error).__name__}: {error}") from error
+
+    if error_messages:
+        raise TtsGenerationError(f"Aliyun NLS error: {error_messages[-1]}")
+    if not audio_chunks:
+        return None
+
+    subtitles = []
+    for message in metainfo_messages:
+        try:
+            payload = json.loads(message).get("payload", {})
+        except (TypeError, json.JSONDecodeError):
+            continue
+        subtitles.extend(payload.get("subtitles") or [])
+    subtitles = _dedupe_subtitles(subtitles)
+
+    mp3_bytes = b"".join(audio_chunks)
+    envelope, audio_duration_ms = _analyze_audio_mouth_envelope(mp3_bytes, None, lip_debug)
+    envelope_from_audio = bool(envelope)
+    phoneme_events = _aliyun_phoneme_events(subtitles)
+    if not envelope and phoneme_events:
+        envelope = [
+            {"t": event["t"], "mo": 0.0 if not event["vis"] else 0.48}
+            for event in phoneme_events
+        ]
+        audio_duration_ms = max((event["t"] + event["d"] for event in phoneme_events), default=0)
+    viseme_timeline = _build_viseme_timeline(envelope, phoneme_events, audio_duration_ms)
+    lipsync_source = (
+        "aliyun-phoneme+audio-envelope" if phoneme_events and envelope_from_audio
+        else "aliyun-phoneme-constant-aperture" if phoneme_events
+        else "aliyun-audio-envelope-only"
+    )
+
+    return {
+        "audio": base64.b64encode(mp3_bytes).decode("ascii"),
+        "audioFormat": "mp3",
+        "words": _subtitle_texts_from_original(text, subtitles),
+        "wtimes": [int(item.get("begin_time", 0) or 0) for item in subtitles],
+        "wdurations": [
+            max(0, int(item.get("end_time", 0) or 0) - int(item.get("begin_time", 0) or 0))
+            for item in subtitles
+        ],
+        "visemeTimeline": viseme_timeline,
+        "visemeEvents": phoneme_events,
+        "subtitles": subtitles,
+        "audioDurationMs": audio_duration_ms,
+        "lipsyncSource": lipsync_source,
+        "voice": config["voice"],
+        "provider": "aliyun-nls",
+    }
+
+
+
+def generate_tts_sync(text, profile_id=None, lip_debug=None):
+    last_error = None
+    if azure_speech_config()["enabled"]:
+        try:
+            result = generate_azure_blendshape_tts(text, tts_voice_for_profile(profile_id))
+            if result:
+                return result
+        except TtsGenerationError as error:
+            last_error = error
+
+    if aliyun_tts_config()["enabled"]:
+        try:
+            result = _generate_aliyun_tts_sync(text, profile_id, lip_debug)
+            if result:
+                return result
+        except TtsGenerationError as error:
+            if last_error:
+                raise TtsGenerationError(f"Azure failed: {last_error}; Aliyun failed: {error}") from error
+            raise
+
+    if last_error:
+        raise last_error
+    return None
+
+
+def generate_azure_blendshape_tts(text, voice=None):
+    config = azure_speech_config()
+    if not text:
+        raise TtsGenerationError("missing text")
+    if not config["enabled"]:
+        raise TtsGenerationError("Azure Speech is not configured")
+    if not AZURE_SPEECH_AVAILABLE:
+        raise TtsGenerationError("Azure Speech SDK is not installed")
+
+    selected_voice = (voice or config["voice"]).strip() or config["voice"]
+    speech_config = speechsdk.SpeechConfig(subscription=config["key"], region=config["region"])
+    speech_config.speech_synthesis_voice_name = selected_voice
+    speech_config.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3
+    )
+    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+
+    blendshape_chunks = {}
+    viseme_events = []
+
+    def on_viseme(evt):
+        viseme_events.append({
+            "t": int(evt.audio_offset // 10000),
+            "id": int(evt.viseme_id),
+        })
+        if not evt.animation:
+            return
+        try:
+            animation = json.loads(evt.animation)
+        except json.JSONDecodeError:
+            return
+        frame_index = int(animation.get("FrameIndex", 0) or 0)
+        frames = animation.get("BlendShapes") or []
+        if frames:
+            blendshape_chunks[frame_index] = frames
+
+    synthesizer.viseme_received.connect(on_viseme)
+    ssml = f"""
+<speak version="1.0" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="{config['lang']}">
+  <voice name="{html.escape(selected_voice, quote=True)}">
+    <mstts:viseme type="FacialExpression" />
+    {escape_ssml_text(text)}
+  </voice>
+</speak>
+"""
+    result = synthesizer.speak_ssml_async(ssml).get()
+    if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
+        detail = ""
+        if result.reason == speechsdk.ResultReason.Canceled:
+            cancellation = speechsdk.CancellationDetails(result)
+            detail = f"{cancellation.reason}: {cancellation.error_details}"
+        raise TtsGenerationError(f"Azure synthesis failed: {result.reason} {detail}".strip())
+
+    frames = []
+    for frame_index in sorted(blendshape_chunks):
+        frames.extend(blendshape_chunks[frame_index])
+
+    return {
+        "provider": "azure-speech",
+        "voice": selected_voice,
+        "audio": base64.b64encode(result.audio_data).decode("ascii"),
+        "audioFormat": "mp3",
+        "blendshapeNames": AZURE_BLENDSHAPE_MAP,
+        "blendshapeFrames": frames,
+        "frameRate": 60,
+        "visemeEvents": viseme_events,
+        "lipsyncSource": "azure-facialexpression-blendshapes",
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "LingShanPhase4/4.0"
 
@@ -735,6 +1386,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text/") or ctype == "application/javascript" else ""))
         self.send_header("Content-Length", str(len(body)))
+        if file_path.suffix in {".html", ".js", ".mjs", ".css"}:
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -809,6 +1462,8 @@ class Handler(BaseHTTPRequestHandler):
             })
         if path == "/api/integrations":
             config = llm_config()
+            azure_config = azure_speech_config()
+            aliyun_config = aliyun_tts_config()
             return self.send_json({
                 "llm": {
                     "enabled": bool(config["api_key"]),
@@ -823,9 +1478,26 @@ class Handler(BaseHTTPRequestHandler):
                     "note": "当前用浏览器语音识别兜底，后续可替换为 Whisper 服务端接口。"
                 },
                 "tts": {
-                    "mode": "browser-speech-synthesis",
-                    "externalService": False,
-                    "note": "当前用浏览器语音播报兜底，后续可替换为 Edge-TTS 服务端接口。"
+                    "mode": (
+                        "azure-speech" if azure_config["enabled"]
+                        else "aliyun-nls" if aliyun_config["enabled"]
+                        else "edge-tts" if EDGE_TTS_AVAILABLE
+                        else "browser-speech-synthesis"
+                    ),
+                    "externalService": bool(azure_config["enabled"] or aliyun_config["enabled"] or EDGE_TTS_AVAILABLE),
+                    "engine": (
+                        "azure-speech" if azure_config["enabled"]
+                        else "aliyun-nls" if aliyun_config["enabled"]
+                        else "edge-tts" if EDGE_TTS_AVAILABLE
+                        else "browser"
+                    ),
+                    "note": (
+                        "Aliyun NLS enabled; returns phoneme timestamps for lip-sync."
+                        if aliyun_config["enabled"]
+                        else "Edge-TTS 服务端语音合成已启用（含中文 viseme 口型数据）。"
+                        if EDGE_TTS_AVAILABLE
+                        else "edge-tts 未安装，使用浏览器语音播报兜底。"
+                    )
                 }
             })
         file_path = self.static_path(path)
@@ -835,6 +1507,33 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/api/tts":
+            body = self.read_body()
+            text = body.get("text", "")
+            profile_id = body.get("profileId", "")
+            lip_debug = body.get("lipDebug") or None
+            if not text:
+                return self.send_json({"error": "missing text"}, 400)
+            if not azure_speech_config()["enabled"] and not aliyun_tts_config()["enabled"] and not EDGE_TTS_AVAILABLE:
+                return self.send_json({"error": "no server-side tts engine configured"}, 503)
+            try:
+                result = generate_tts_sync(text, profile_id or None, lip_debug)
+            except TtsGenerationError as error:
+                return self.send_json({"error": "tts generation failed", "detail": str(error)}, 502)
+            if not result:
+                return self.send_json({"error": "tts generation failed"}, 500)
+            return self.send_json(result)
+        if path == "/api/azure-tts":
+            body = self.read_body()
+            text = body.get("text", "")
+            voice = body.get("voice", "")
+            if not text:
+                return self.send_json({"error": "missing text"}, 400)
+            try:
+                result = generate_azure_blendshape_tts(text, voice or None)
+            except TtsGenerationError as error:
+                return self.send_json({"error": "azure tts generation failed", "detail": str(error)}, 502)
+            return self.send_json(result)
         if path == "/api/knowledge/upload":
             raw = self.read_raw_body()
             fields = parse_multipart(raw, self.headers.get("Content-Type", ""))

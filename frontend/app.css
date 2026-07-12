@@ -1,6 +1,6 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: "Microsoft YaHei", Arial, sans-serif; background: #eef3f1; color: #19231f; }
-.shell { height: 100vh; display: grid; grid-template-columns: 280px minmax(460px, 1fr) 340px; gap: 14px; padding: 14px; overflow: hidden; }
+.shell { height: 100vh; display: grid; grid-template-columns: 360px minmax(460px, 1fr) 340px; gap: 14px; padding: 14px; overflow: hidden; }
 .guide-panel, .main-panel, .routes-panel { background: rgba(255,255,255,.94); border: 1px solid #dbe5df; border-radius: 8px; box-shadow: 0 12px 30px rgba(37,58,48,.08); min-height: 0; }
 .guide-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 22px; gap: 16px; background: linear-gradient(180deg, #f8fbfa, #e7f1ed); }
 .avatar { width: 188px; height: 188px; border-radius: 50%; display: grid; place-items: center; background: #dae9e2; position: relative; overflow: hidden; border: 8px solid #fff; transition: background .35s ease, outline .25s ease; }
@@ -180,8 +180,8 @@ button.voice.recording { background: #9c3d3d; color: white; }
 
 /* TalkingHead 3D avatar replacement */
 .avatar.talkinghead-shell {
-  width: 240px;
-  height: 330px;
+  width: 310px;
+  height: 430px;
   border-radius: 18px;
   padding: 0;
   overflow: hidden;

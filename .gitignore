@@ -13,6 +13,9 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+.claude/
+.agents/
+.codex/
 
 # OS
 .DS_Store

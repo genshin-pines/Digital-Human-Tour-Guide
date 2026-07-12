@@ -32,6 +32,7 @@ let activeUtterance = null;
 let activeSpeechText = "";
 let speechRunId = 0;
 let speechPaused = false;
+let serverTtsAvailable = null;
 let autoGuideSpots = [];
 let autoGuideWatchId = null;
 let autoGuideEnabled = false;
@@ -134,6 +135,10 @@ function buildUtterance(text, runId) {
     avatar.classList.add("speaking");
     window.lingshanAvatar?.speakText?.(text);
   };
+  utterance.onboundary = (event) => {
+    if (runId !== speechRunId || speechPaused || !Number.isInteger(event.charIndex)) return;
+    window.lingshanAvatar?.syncSpeechBoundary?.(text, event.charIndex, event.charLength || 1);
+  };
   utterance.onend = () => {
     window.lingshanAvatar?.stopSpeaking?.();
     playNextSpeechChunk(runId);
@@ -160,7 +165,7 @@ function playNextSpeechChunk(runId) {
   window.speechSynthesis.speak(activeUtterance);
 }
 
-function speak(text) {
+function speakBrowserFallback(text) {
   if (!("speechSynthesis" in window) || !text) return;
   speechRunId += 1;
   const runId = speechRunId;
@@ -179,7 +184,70 @@ function speak(text) {
   }, 60);
 }
 
+async function speakWithServerTTS(text) {
+  if (!text) return false;
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text, profileId: currentAvatarProfile?.id || ""}),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data.audio) return false;
+
+    window.lingshanAvatar?.stopSpeaking?.();
+    if (data.blendshapeFrames?.length && data.blendshapeNames?.length) {
+      const handledBlendshapes = await window.lingshanAvatar?.speakWithBlendshapes?.(data.audio, data);
+      if (handledBlendshapes) return true;
+    }
+
+    const timeline = {
+      words: data.words, wtimes: data.wtimes, wdurations: data.wdurations,
+      visemeTimeline: data.visemeTimeline,
+    };
+    const handled = window.lingshanAvatar?.speakWithTimeline?.(data.audio, timeline);
+    if (!handled) {
+      // Fallback: play audio ourselves + use manual lip sync
+      const audio = new Audio("data:audio/mp3;base64," + data.audio);
+      window.lingshanAvatar?.speakText?.(text);
+      await audio.play();
+    }
+    return true;
+  } catch (error) {
+    console.warn("Server TTS failed:", error);
+    return false;
+  }
+}
+
+async function speak(text) {
+  if (!text) return;
+  stopSpeech();
+  activeSpeechText = String(text || "");
+
+  if (serverTtsAvailable === null) {
+    try {
+      const check = await fetch("/api/integrations");
+      const status = check.ok ? await check.json() : null;
+      serverTtsAvailable = Boolean(status?.tts?.externalService);
+    } catch {
+      serverTtsAvailable = true;
+    }
+  }
+
+  if (serverTtsAvailable) {
+    const ok = await speakWithServerTTS(text);
+    if (ok) return;
+  }
+  speakBrowserFallback(text);
+}
+
 function pauseSpeech() {
+  const avAudio = window.lingshanAvatar?.getServerTtsAudio?.() || window.lingshanAvatar?.getEdgeTtsAudio?.();
+  if (avAudio && !avAudio.paused) {
+    window.lingshanAvatar?.pauseSpeaking?.();
+    return;
+  }
   if (!("speechSynthesis" in window)) return;
   speechPaused = true;
   window.speechSynthesis.pause();
@@ -188,6 +256,11 @@ function pauseSpeech() {
 }
 
 function resumeSpeech() {
+  const avAudio = window.lingshanAvatar?.getServerTtsAudio?.() || window.lingshanAvatar?.getEdgeTtsAudio?.();
+  if (avAudio && avAudio.paused && avAudio.src) {
+    window.lingshanAvatar?.resumeSpeaking?.();
+    return;
+  }
   if (!("speechSynthesis" in window)) return;
   speechPaused = false;
   window.speechSynthesis.resume();
@@ -199,14 +272,13 @@ function resumeSpeech() {
 }
 
 function stopSpeech() {
-  if (!("speechSynthesis" in window)) return;
   speechRunId += 1;
   speechPaused = false;
   speechQueue = [];
   speechIndex = 0;
   activeUtterance = null;
   activeSpeechText = "";
-  window.speechSynthesis.cancel();
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   avatar.classList.remove("speaking");
   window.lingshanAvatar?.stopSpeaking?.();
 }
